@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_ENDPOINTS } from '../utils/api';
+import axiosInstance, { API_ENDPOINTS } from '../utils/api';
 import ClientCrypto from '../utils/crypto';
 
 function FileShare({ token }) {
@@ -23,7 +22,7 @@ function FileShare({ token }) {
   const fetchFiles = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(API_ENDPOINTS.FILE.LIST);
+      const res = await axiosInstance.get(API_ENDPOINTS.FILE.LIST);
       setFiles(res.data.data);
     } catch (err) {
       setError('Failed to fetch files: ' + (err.response?.data?.error || err.message));
@@ -48,7 +47,7 @@ function FileShare({ token }) {
       formData.append('file', uploadFile);
       formData.append('privateKey', privateKey);
 
-      const res = await axios.post(API_ENDPOINTS.FILE.UPLOAD, formData, {
+      const res = await axiosInstance.post(API_ENDPOINTS.FILE.UPLOAD, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },
@@ -75,7 +74,7 @@ function FileShare({ token }) {
     setError('');
 
     try {
-      const res = await axios.post(
+      const res = await axiosInstance.post(
         API_ENDPOINTS.FILE.DOWNLOAD(fileId),
         { privateKey },
         { 
@@ -130,7 +129,7 @@ function FileShare({ token }) {
     setSuccess('');
 
     try {
-      const res = await axios.post(
+      const res = await axiosInstance.post(
         API_ENDPOINTS.FILE.SHARE(selectedFileId),
         {
           usernames: [shareUsername],
@@ -158,7 +157,7 @@ function FileShare({ token }) {
     setError('');
 
     try {
-      await axios.delete(API_ENDPOINTS.FILE.DELETE(fileId));
+      await axiosInstance.delete(API_ENDPOINTS.FILE.DELETE(fileId));
       setSuccess(`File "${filename}" deleted successfully!`);
       fetchFiles();
     } catch (err) {
