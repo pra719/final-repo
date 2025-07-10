@@ -9,6 +9,7 @@ function Login({ setToken }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [testingConnection, setTestingConnection] = useState(false);
+  const [debugMode, setDebugMode] = useState(process.env.NODE_ENV === 'development');
   const navigate = useNavigate();
 
   const testConnection = async () => {
@@ -21,6 +22,19 @@ function Login({ setToken }) {
       setError('✗ Connection failed. Please check if the backend is running.');
     } finally {
       setTestingConnection(false);
+    }
+  };
+
+  // NEW: Test signature compatibility
+  const testSignature = async (privateKey, challenge) => {
+    try {
+      console.log('🧪 Testing signature compatibility...');
+      const testResult = ClientCrypto.testSignatureCompatibility(challenge, privateKey);
+      console.log('Test result:', testResult);
+      return testResult;
+    } catch (error) {
+      console.error('Signature test failed:', error);
+      return null;
     }
   };
 
@@ -47,6 +61,10 @@ function Login({ setToken }) {
         try {
           const privateKey = reader.result;
           
+          console.log('🔐 Starting authentication process...');
+          console.log('Username:', username.trim());
+          console.log('Private key length:', privateKey.length);
+          
           // Validate private key format
           if (!ClientCrypto.isValidPEM(privateKey, 'PRIVATE KEY')) {
             setError('Invalid private key format. Please ensure you selected the correct .pem file.');
@@ -54,7 +72,10 @@ function Login({ setToken }) {
             return;
           }
 
+          console.log('✓ Private key format validated');
+
           // Step 1: Get challenge from server
+          console.log('📡 Requesting authentication challenge...');
           const challengeRes = await axiosInstance.post('/api/auth/challenge');
           
           if (!challengeRes.data.success || !challengeRes.data.challenge) {
@@ -64,18 +85,35 @@ function Login({ setToken }) {
           }
 
           const challenge = challengeRes.data.challenge;
+          console.log('✓ Challenge received:', challenge);
+
+          // NEW: Test signature locally if in debug mode
+          if (debugMode) {
+            const testResult = await testSignature(privateKey, challenge);
+            if (testResult) {
+              console.log('✓ Local signature test passed');
+            } else {
+              console.log('⚠️ Local signature test failed');
+            }
+          }
 
           // Step 2: Sign challenge with private key
+          console.log('🔏 Signing challenge...');
           let signature;
           try {
             signature = ClientCrypto.signChallenge(challenge, privateKey);
+            console.log('✓ Challenge signed successfully');
+            console.log('Signature:', signature);
+            console.log('Signature length:', signature.length);
           } catch (signError) {
-            setError('Failed to sign challenge. Please check your private key file.');
+            console.error('❌ Signature creation failed:', signError);
+            setError(`Failed to sign challenge: ${signError.message}`);
             setLoading(false);
             return;
           }
 
           // Step 3: Send login request with username, challenge, and signature
+          console.log('📡 Sending login request...');
           const loginRes = await axiosInstance.post('/api/auth/login', {
             username: username.trim(),
             challenge,
@@ -83,10 +121,13 @@ function Login({ setToken }) {
           });
 
           if (!loginRes.data.success) {
+            console.error('❌ Login failed:', loginRes.data.error);
             setError(loginRes.data.error || 'Login failed');
             setLoading(false);
             return;
           }
+
+          console.log('🎉 Login successful!');
 
           // Store token and user data
           const token = loginRes.data.data.token;
@@ -100,15 +141,27 @@ function Login({ setToken }) {
           navigate('/files');
           
         } catch (err) {
-          console.error('Login error:', err);
+          console.error('❌ Login error:', err);
           
           if (err.response) {
             // Server responded with error
             const status = err.response.status;
             const errorMessage = err.response.data?.error || 'Login failed';
             
+            console.log('Server error details:', {
+              status,
+              message: errorMessage,
+              details: err.response.data?.details
+            });
+            
             if (status === 401) {
-              setError('Authentication failed. Please check your username and private key.');
+              if (errorMessage.includes('signature')) {
+                setError('Authentication failed: Invalid digital signature. Please check your private key file.');
+              } else if (errorMessage.includes('certificate')) {
+                setError('Authentication failed: Certificate issue. Please contact support.');
+              } else {
+                setError('Authentication failed. Please check your username and private key.');
+              }
             } else if (status === 429) {
               setError('Too many login attempts. Please try again later.');
             } else if (status >= 500) {
@@ -135,6 +188,7 @@ function Login({ setToken }) {
       
       reader.readAsText(privateKeyFile);
     } catch (err) {
+      console.error('❌ Unexpected error:', err);
       setError('Error processing login request');
       setLoading(false);
     }
@@ -168,15 +222,30 @@ function Login({ setToken }) {
         
         <div className="glass-card">
           {/* Connection Test Button */}
-          <div className="mb-4">
+          <div className="mb-4 flex gap-2">
             <button
               type="button"
               onClick={testConnection}
               disabled={testingConnection}
-              className="w-full py-2 px-4 text-sm bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 rounded-lg border border-blue-400/30 transition-all duration-200"
+              className="flex-1 py-2 px-4 text-sm bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 rounded-lg border border-blue-400/30 transition-all duration-200"
             >
               {testingConnection ? 'Testing Connection...' : 'Test Backend Connection'}
             </button>
+            
+            {/* Debug Mode Toggle */}
+            {process.env.NODE_ENV === 'development' && (
+              <button
+                type="button"
+                onClick={() => setDebugMode(!debugMode)}
+                className={`py-2 px-4 text-sm rounded-lg border transition-all duration-200 ${
+                  debugMode 
+                    ? 'bg-green-500/20 hover:bg-green-500/30 text-green-200 border-green-400/30' 
+                    : 'bg-gray-500/20 hover:bg-gray-500/30 text-gray-200 border-gray-400/30'
+                }`}
+              >
+                Debug {debugMode ? 'ON' : 'OFF'}
+              </button>
+            )}
           </div>
 
           {error && (
@@ -246,6 +315,11 @@ function Login({ setToken }) {
                     Your private key is processed locally and used for cryptographic authentication. 
                     It never leaves your device in plain text.
                   </p>
+                  {debugMode && (
+                    <p className="text-xs text-yellow-300/60 mt-1">
+                      Debug mode is enabled - additional logging information will be shown in the console.
+                    </p>
+                  )}
                 </div>
               </div>
             </div>
