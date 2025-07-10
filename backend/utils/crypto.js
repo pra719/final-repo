@@ -56,21 +56,49 @@ class CryptoUtils {
 
   // Create digital signature
   static createSignature(data, privateKey) {
-    const sign = crypto.createSign('SHA256');
-    sign.update(data);
-    sign.end();
-    return sign.sign(privateKey, 'hex');
+    try {
+      const sign = crypto.createSign('SHA256');
+      sign.update(data);
+      sign.end();
+      return sign.sign(privateKey, 'base64'); // Changed to base64 for consistency
+    } catch (error) {
+      console.error('Failed to create signature:', error);
+      throw error;
+    }
   }
 
-  // Verify digital signature - Fixed to handle base64 signatures from frontend
+  // Verify digital signature - Fixed to handle both hex and base64 signatures from frontend
   static verifySignature(data, signature, publicKey) {
     try {
-      // Use forge for compatibility with frontend
-      const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
-      const md = forge.md.sha256.create();
-      md.update(data, 'utf8');
-      const signatureBytes = forge.util.decode64(signature);
-      return forgePublicKey.verify(md.digest().bytes(), signatureBytes);
+      // First try with Node.js crypto (for hex signatures)
+      const verify = crypto.createVerify('SHA256');
+      verify.update(data);
+      verify.end();
+      
+      // Try hex format first
+      try {
+        return verify.verify(publicKey, signature, 'hex');
+      } catch (hexError) {
+        // If hex fails, try base64 format
+        try {
+          return verify.verify(publicKey, signature, 'base64');
+        } catch (base64Error) {
+          // If both fail, try with forge
+          const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
+          const md = forge.md.sha256.create();
+          md.update(data, 'utf8');
+          
+          // Try base64 decode first
+          try {
+            const signatureBytes = forge.util.decode64(signature);
+            return forgePublicKey.verify(md.digest().bytes(), signatureBytes);
+          } catch (forgeBase64Error) {
+            // Try hex decode
+            const signatureBytes = forge.util.hexToBytes(signature);
+            return forgePublicKey.verify(md.digest().bytes(), signatureBytes);
+          }
+        }
+      }
     } catch (error) {
       console.error('Signature verification error:', error);
       return false;

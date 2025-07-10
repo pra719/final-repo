@@ -5,7 +5,6 @@ const jwt = require('jsonwebtoken');
 const CryptoUtils = require('../utils/crypto');
 const CA = require('../utils/ca');
 const rateLimit = require('express-rate-limit');
-const rateLimit = require('express-rate-limit');
 
 const isTesting = process.env.NODE_ENV === 'test' || process.env.NODE_ENV === 'development';
 
