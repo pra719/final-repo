@@ -1,14 +1,14 @@
 import forge from 'node-forge';
 
 class ClientCrypto {
-  // Generate challenge signature for login - FIXED: Now returns hex format to match backend
+  // Generate challenge signature for login - FIXED: Now returns base64 format to match backend
   static signChallenge(challenge, privateKeyPem) {
     try {
       const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
       const md = forge.md.sha256.create();
       md.update(challenge, 'utf8');
       const signature = privateKey.sign(md);
-      return forge.util.bytesToHex(signature); // Changed from encode64 to bytesToHex
+      return forge.util.encode64(signature); // Changed back to base64 for backend compatibility
     } catch (error) {
       throw new Error('Failed to sign challenge: ' + error.message);
     }
@@ -20,21 +20,21 @@ class ClientCrypto {
       const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
       const md = forge.md.sha256.create();
       md.update(data, 'utf8');
-      const signatureBytes = forge.util.hexToBytes(signature); // Updated to handle hex format
+      const signatureBytes = forge.util.decode64(signature); // Updated to handle base64 format
       return publicKey.verify(md.digest().bytes(), signatureBytes);
     } catch (error) {
       return false;
     }
   }
 
-  // Create digital signature - FIXED: Now returns hex format to match backend
+  // Create digital signature - FIXED: Now returns base64 format to match backend
   static createSignature(data, privateKeyPem) {
     try {
       const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
       const md = forge.md.sha256.create();
       md.update(data, 'utf8');
       const signature = privateKey.sign(md);
-      return forge.util.bytesToHex(signature); // Changed from encode64 to bytesToHex
+      return forge.util.encode64(signature); // Changed back to base64 for backend compatibility
     } catch (error) {
       throw new Error('Failed to create signature: ' + error.message);
     }
