@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-import { API_ENDPOINTS } from '../utils/api';
+import axiosInstance, { API_ENDPOINTS } from '../utils/api';
 import ClientCrypto from '../utils/crypto';
 
 function Messaging({ token }) {
@@ -22,7 +21,7 @@ function Messaging({ token }) {
   const fetchMessages = async () => {
     setLoading(true);
     try {
-      const res = await axios.get(API_ENDPOINTS.MESSAGE.LIST);
+      const res = await axiosInstance.get(API_ENDPOINTS.MESSAGE.LIST);
       setMessages(res.data.data || []);
     } catch (err) {
       setError('Failed to fetch messages: ' + (err.response?.data?.error || err.message));
@@ -44,7 +43,7 @@ function Messaging({ token }) {
 
     try {
       // Get recipient's public key
-      const recipientRes = await axios.get(API_ENDPOINTS.AUTH.PUBLIC_KEY(recipient));
+      const recipientRes = await axiosInstance.get(API_ENDPOINTS.AUTH.PUBLIC_KEY(recipient));
       const recipientPublicKey = recipientRes.data.data.publicKey;
 
       // Encrypt message with recipient's public key
@@ -53,7 +52,7 @@ function Messaging({ token }) {
       // Create digital signature
       const signature = ClientCrypto.createSignature(newMessage, privateKey);
 
-      const res = await axios.post(API_ENDPOINTS.MESSAGE.SEND, {
+      const res = await axiosInstance.post(API_ENDPOINTS.MESSAGE.SEND, {
         recipient,
         encryptedContent: encryptedMessage,
         signature,
@@ -80,7 +79,7 @@ function Messaging({ token }) {
     setError('');
 
     try {
-      await axios.delete(API_ENDPOINTS.MESSAGE.DELETE(messageId));
+      await axiosInstance.delete(API_ENDPOINTS.MESSAGE.DELETE(messageId));
       setSuccess('Message deleted successfully!');
       fetchMessages();
     } catch (err) {
