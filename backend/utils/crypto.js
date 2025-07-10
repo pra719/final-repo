@@ -54,63 +54,101 @@ class CryptoUtils {
     return crypto.privateDecrypt(privateKey, Buffer.from(encryptedData, 'base64')).toString();
   }
 
-  // Create digital signature
+  // Create digital signature (returns base64)
   static createSignature(data, privateKey) {
     try {
       const sign = crypto.createSign('SHA256');
       sign.update(data);
       sign.end();
-      return sign.sign(privateKey, 'base64'); // Changed to base64 for consistency
+      return sign.sign(privateKey, 'base64');
     } catch (error) {
       console.error('Failed to create signature:', error);
       throw error;
     }
   }
 
-  // Verify digital signature - Fixed to handle both hex and base64 signatures from frontend
+  // FIXED: Comprehensive signature verification with multiple format support
   static verifySignature(data, signature, publicKey) {
     try {
-      // First try with Node.js crypto (for hex signatures)
-      const verify = crypto.createVerify('SHA256');
-      verify.update(data);
-      verify.end();
-      
-      // Try hex format first
+      // Method 1: Try Node.js crypto with base64 (most common from frontend)
       try {
-        return verify.verify(publicKey, signature, 'hex');
-      } catch (hexError) {
-        // If hex fails, try base64 format
-        try {
-          return verify.verify(publicKey, signature, 'base64');
-        } catch (base64Error) {
-          // If both fail, try with forge
-          const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
-          const md = forge.md.sha256.create();
-          md.update(data, 'utf8');
-          
-          // Try base64 decode first
-          try {
-            const signatureBytes = forge.util.decode64(signature);
-            return forgePublicKey.verify(md.digest().bytes(), signatureBytes);
-          } catch (forgeBase64Error) {
-            // Try hex decode
-            const signatureBytes = forge.util.hexToBytes(signature);
-            return forgePublicKey.verify(md.digest().bytes(), signatureBytes);
-          }
+        const verify = crypto.createVerify('SHA256');
+        verify.update(data);
+        verify.end();
+        const result = verify.verify(publicKey, signature, 'base64');
+        if (result) {
+          console.log('✓ Signature verified with Node.js crypto (base64)');
+          return true;
         }
+      } catch (base64Error) {
+        console.log('Node.js crypto base64 verification failed:', base64Error.message);
       }
+
+      // Method 2: Try Node.js crypto with hex
+      try {
+        const verify = crypto.createVerify('SHA256');
+        verify.update(data);
+        verify.end();
+        const result = verify.verify(publicKey, signature, 'hex');
+        if (result) {
+          console.log('✓ Signature verified with Node.js crypto (hex)');
+          return true;
+        }
+      } catch (hexError) {
+        console.log('Node.js crypto hex verification failed:', hexError.message);
+      }
+
+      // Method 3: Try node-forge with base64
+      try {
+        const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
+        const md = forge.md.sha256.create();
+        md.update(data, 'utf8');
+        const signatureBytes = forge.util.decode64(signature);
+        const result = forgePublicKey.verify(md.digest().bytes(), signatureBytes);
+        if (result) {
+          console.log('✓ Signature verified with node-forge (base64)');
+          return true;
+        }
+      } catch (forgeBase64Error) {
+        console.log('Node-forge base64 verification failed:', forgeBase64Error.message);
+      }
+
+      // Method 4: Try node-forge with hex
+      try {
+        const forgePublicKey = forge.pki.publicKeyFromPem(publicKey);
+        const md = forge.md.sha256.create();
+        md.update(data, 'utf8');
+        const signatureBytes = forge.util.hexToBytes(signature);
+        const result = forgePublicKey.verify(md.digest().bytes(), signatureBytes);
+        if (result) {
+          console.log('✓ Signature verified with node-forge (hex)');
+          return true;
+        }
+      } catch (forgeHexError) {
+        console.log('Node-forge hex verification failed:', forgeHexError.message);
+      }
+
+      // Method 5: Try raw buffer interpretation
+      try {
+        const verify = crypto.createVerify('SHA256');
+        verify.update(data);
+        verify.end();
+        const result = verify.verify(publicKey, Buffer.from(signature, 'base64'));
+        if (result) {
+          console.log('✓ Signature verified with raw buffer');
+          return true;
+        }
+      } catch (bufferError) {
+        console.log('Raw buffer verification failed:', bufferError.message);
+      }
+
+      console.log('✗ All signature verification methods failed');
+      return false;
+
     } catch (error) {
-      console.error('Signature verification error:', error);
+      console.error('Critical signature verification error:', error);
       return false;
     }
-  }
-
-  // Legacy verify function using Node.js crypto (kept for compatibility)
-  static verifySignatureHex(data, signature, publicKey) {
-    const verify = crypto.createVerify('SHA256');
-    verify.update(data);
-    verify.end();
-    return verify.verify(publicKey, signature, 'hex');
   }
 
   // Generate hash
@@ -125,50 +163,55 @@ class CryptoUtils {
 
   // Create X.509 certificate using node-forge
   static createCertificate(publicKeyPem, privateKeyPem, subject, issuer, serialNumber) {
-    const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
-    const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+    try {
+      const publicKey = forge.pki.publicKeyFromPem(publicKeyPem);
+      const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
 
-    const cert = forge.pki.createCertificate();
-    cert.publicKey = publicKey;
-    cert.serialNumber = serialNumber;
-    cert.validity.notBefore = new Date();
-    cert.validity.notAfter = new Date();
-    cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
+      const cert = forge.pki.createCertificate();
+      cert.publicKey = publicKey;
+      cert.serialNumber = serialNumber;
+      cert.validity.notBefore = new Date();
+      cert.validity.notAfter = new Date();
+      cert.validity.notAfter.setFullYear(cert.validity.notBefore.getFullYear() + 1);
 
-    const attrs = [
-      { name: 'commonName', value: subject.commonName },
-      { name: 'organizationName', value: subject.organizationName || 'Secure File Sharing' },
-      { name: 'emailAddress', value: subject.emailAddress }
-    ];
+      const attrs = [
+        { name: 'commonName', value: subject.commonName },
+        { name: 'organizationName', value: subject.organizationName || 'Secure File Sharing' },
+        { name: 'emailAddress', value: subject.emailAddress }
+      ];
 
-    cert.setSubject(attrs);
-    cert.setIssuer(issuer || attrs);
+      cert.setSubject(attrs);
+      cert.setIssuer(issuer || attrs);
 
-    // Add extensions
-    cert.setExtensions([
-      {
-        name: 'basicConstraints',
-        cA: false
-      },
-      {
-        name: 'keyUsage',
-        digitalSignature: true,
-        nonRepudiation: true,
-        keyEncipherment: true,
-        dataEncipherment: true
-      },
-      {
-        name: 'extKeyUsage',
-        serverAuth: true,
-        clientAuth: true,
-        emailProtection: true
-      }
-    ]);
+      // Add extensions
+      cert.setExtensions([
+        {
+          name: 'basicConstraints',
+          cA: false
+        },
+        {
+          name: 'keyUsage',
+          digitalSignature: true,
+          nonRepudiation: true,
+          keyEncipherment: true,
+          dataEncipherment: true
+        },
+        {
+          name: 'extKeyUsage',
+          serverAuth: true,
+          clientAuth: true,
+          emailProtection: true
+        }
+      ]);
 
-    // Sign the certificate
-    cert.sign(privateKey, forge.md.sha256.create());
+      // Sign the certificate
+      cert.sign(privateKey, forge.md.sha256.create());
 
-    return forge.pki.certificateToPem(cert);
+      return forge.pki.certificateToPem(cert);
+    } catch (error) {
+      console.error('Certificate creation error:', error);
+      throw new Error('Failed to create certificate: ' + error.message);
+    }
   }
 
   // Verify certificate
@@ -179,18 +222,26 @@ class CryptoUtils {
       // Check if certificate is still valid
       const now = new Date();
       if (now < cert.validity.notBefore || now > cert.validity.notAfter) {
+        console.log('Certificate is expired or not yet valid');
         return false;
       }
 
       // Verify signature (if CA cert is provided)
       if (caCertPem) {
-        const caCert = forge.pki.certificateFromPem(caCertPem);
-        // Use forge's built-in certificate verification
-        return caCert.verify(cert);
+        try {
+          const caCert = forge.pki.certificateFromPem(caCertPem);
+          const verified = caCert.verify(cert);
+          console.log(`Certificate verification result: ${verified}`);
+          return verified;
+        } catch (verifyError) {
+          console.log('Certificate signature verification failed:', verifyError.message);
+          return false;
+        }
       }
 
       return true;
     } catch (error) {
+      console.error('Certificate verification error:', error);
       return false;
     }
   }
@@ -201,7 +252,7 @@ class CryptoUtils {
       const cert = forge.pki.certificateFromPem(certPem);
       return forge.pki.publicKeyToPem(cert.publicKey);
     } catch (error) {
-      throw new Error('Invalid certificate');
+      throw new Error('Invalid certificate: ' + error.message);
     }
   }
 }
