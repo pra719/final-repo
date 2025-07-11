@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import axiosInstance, { API_ENDPOINTS } from '../utils/api';
 import ClientCrypto from '../utils/crypto';
+import CryptoDebugger from '../utils/cryptoDebugger';
 
 function Messaging({ token }) {
   const [messages, setMessages] = useState([]);
@@ -10,6 +11,7 @@ function Messaging({ token }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [debugMode, setDebugMode] = useState(false);
 
   const privateKey = localStorage.getItem('privateKey');
   const user = JSON.parse(localStorage.getItem('user') || '{}');
@@ -92,11 +94,83 @@ function Messaging({ token }) {
   const decryptMessage = (message) => {
     try {
       if (!privateKey) {
+        console.warn('🔑 No private key available for decryption');
         return '[Unable to decrypt - private key not available]';
       }
-      return ClientCrypto.decryptWithPrivateKey(message.encryptedContent, privateKey);
+
+      if (!message || !message.encryptedContent) {
+        console.warn('📦 No encrypted content in message');
+        return '[Unable to decrypt - no encrypted content]';
+      }
+
+      console.log('🔓 Attempting to decrypt message from:', message.sender?.username || message.sender);
+      console.log('Message ID:', message._id);
+      console.log('Encrypted content length:', message.encryptedContent?.length);
+
+      const decrypted = ClientCrypto.decryptWithPrivateKey(message.encryptedContent, privateKey);
+      console.log('✅ Message decrypted successfully');
+      return decrypted;
     } catch (err) {
-      return '[Unable to decrypt - invalid key or corrupted message]';
+      console.error('❌ Message decryption failed:', err);
+      console.error('Error details:', {
+        messageId: message._id,
+        sender: message.sender?.username || message.sender,
+        encryptedContentLength: message.encryptedContent?.length,
+        errorMessage: err.message
+      });
+
+      // Provide more helpful error messages based on the error type
+      if (err.message.includes('base64')) {
+        return '[Unable to decrypt - corrupted message data]';
+      } else if (err.message.includes('private key')) {
+        return '[Unable to decrypt - invalid private key]';
+      } else if (err.message.includes('Wrong key')) {
+        return '[Unable to decrypt - message not intended for you]';
+      } else {
+        return `[Unable to decrypt - ${err.message}]`;
+      }
+    }
+  };
+
+  const runDiagnostics = async () => {
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    
+    console.log('🔧 Running encryption diagnostics...');
+    
+    try {
+      const results = await CryptoDebugger.diagnoseEncryptionIssues();
+      
+      if (results.issues.length === 0) {
+        setSuccess('✅ Encryption diagnostics passed! Your system is working correctly.');
+      } else {
+        setError(`⚠️ Found ${results.issues.length} issue(s): ${results.issues.join(', ')}. Check console for details and recommendations.`);
+      }
+    } catch (err) {
+      setError('Diagnostics failed: ' + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const runQuickFix = async () => {
+    setLoading(true);
+    setError('');
+    setSuccess('');
+    
+    try {
+      const fixes = await CryptoDebugger.quickFix();
+      
+      if (fixes.length > 0) {
+        setSuccess(`🔧 Applied ${fixes.length} fix(es): ${fixes.join(', ')}. You may need to log in again.`);
+      } else {
+        setSuccess('ℹ️ No automatic fixes needed or available.');
+      }
+    } catch (err) {
+      setError('Quick fix failed: ' + err.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -113,8 +187,59 @@ function Messaging({ token }) {
   return (
     <div className="container mx-auto px-4 py-8 max-w-4xl">
       <div className="mb-8">
-        <h1 className="text-4xl font-bold text-white mb-2 text-shadow">Secure Messaging</h1>
-        <p className="text-white/80 text-lg">Send and receive encrypted messages securely</p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h1 className="text-4xl font-bold text-white mb-2 text-shadow">Secure Messaging</h1>
+            <p className="text-white/80 text-lg">Send and receive encrypted messages securely</p>
+          </div>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => setDebugMode(!debugMode)}
+              className="text-white/60 hover:text-white p-2 rounded-lg hover:bg-white/10 transition-colors duration-200"
+              title="Toggle Debug Mode"
+            >
+              <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        {/* Debug Controls */}
+        {debugMode && (
+          <div className="mt-4 p-4 bg-yellow-500/10 border border-yellow-400/30 rounded-xl">
+            <h3 className="text-lg font-semibold text-white mb-3">🔧 Encryption Debugging Tools</h3>
+            <p className="text-white/70 text-sm mb-4">
+              Use these tools if you're experiencing message decryption issues. Check the browser console for detailed information.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={runDiagnostics}
+                disabled={loading}
+                className="btn-secondary py-2 px-4 text-sm"
+              >
+                {loading ? '🔄 Running...' : '🔍 Run Diagnostics'}
+              </button>
+              <button
+                onClick={runQuickFix}
+                disabled={loading}
+                className="btn-secondary py-2 px-4 text-sm"
+              >
+                {loading ? '🔄 Fixing...' : '🛠️ Quick Fix'}
+              </button>
+              <button
+                onClick={() => {
+                  console.clear();
+                  console.log('🧹 Console cleared for debugging');
+                }}
+                className="btn-secondary py-2 px-4 text-sm"
+              >
+                🧹 Clear Console
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Alerts */}

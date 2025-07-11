@@ -82,20 +82,78 @@ class ClientCrypto {
     }
   }
 
-  // Decrypt data with private key
+  // IMPROVED: Decrypt data with private key with better error handling and debugging
   static decryptWithPrivateKey(encryptedData, privateKeyPem) {
     try {
-      if (!encryptedData || !privateKeyPem) {
-        throw new Error('Encrypted data and private key are required');
+      // Enhanced input validation
+      if (!encryptedData || typeof encryptedData !== 'string') {
+        throw new Error('Valid encrypted data string is required');
+      }
+      
+      if (!privateKeyPem || typeof privateKeyPem !== 'string') {
+        throw new Error('Valid private key PEM string is required');
       }
 
-      const privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
-      const encrypted = forge.util.decode64(encryptedData);
-      const decrypted = privateKey.decrypt(encrypted, 'RSA-OAEP');
-      return decrypted;
+      // Validate private key format
+      if (!this.isValidPEM(privateKeyPem, 'PRIVATE KEY')) {
+        throw new Error('Invalid private key PEM format');
+      }
+
+      console.log('🔓 Attempting decryption...');
+      console.log('Encrypted data length:', encryptedData.length);
+      console.log('Private key valid:', this.isValidPEM(privateKeyPem, 'PRIVATE KEY'));
+
+      // Parse private key
+      let privateKey;
+      try {
+        privateKey = forge.pki.privateKeyFromPem(privateKeyPem);
+      } catch (keyError) {
+        console.error('Private key parsing failed:', keyError);
+        throw new Error('Failed to parse private key: ' + keyError.message);
+      }
+
+      // Decode base64 encrypted data
+      let encrypted;
+      try {
+        encrypted = forge.util.decode64(encryptedData);
+      } catch (decodeError) {
+        console.error('Base64 decode failed:', decodeError);
+        throw new Error('Failed to decode encrypted data: ' + decodeError.message);
+      }
+
+      // Perform decryption
+      let decrypted;
+      try {
+        decrypted = privateKey.decrypt(encrypted, 'RSA-OAEP');
+        console.log('✓ Decryption successful');
+        return decrypted;
+      } catch (decryptError) {
+        console.error('RSA decryption failed:', decryptError);
+        
+        // Try alternative padding scheme as fallback
+        try {
+          console.log('🔄 Trying PKCS#1 v1.5 padding as fallback...');
+          decrypted = privateKey.decrypt(encrypted);
+          console.log('✓ Decryption successful with PKCS#1 v1.5');
+          return decrypted;
+        } catch (fallbackError) {
+          console.error('Fallback decryption also failed:', fallbackError);
+          throw new Error('Decryption failed with both OAEP and PKCS#1 v1.5 padding');
+        }
+      }
     } catch (error) {
-      console.error('Failed to decrypt with private key:', error);
-      throw new Error('Failed to decrypt with private key: ' + error.message);
+      console.error('❌ Decryption process failed:', error);
+      
+      // Provide more specific error messages
+      if (error.message.includes('decode64')) {
+        throw new Error('Invalid encrypted data format - not valid base64');
+      } else if (error.message.includes('private key')) {
+        throw new Error('Invalid or corrupted private key');
+      } else if (error.message.includes('decrypt')) {
+        throw new Error('Wrong key or corrupted message - decryption failed');
+      } else {
+        throw new Error('Decryption failed: ' + error.message);
+      }
     }
   }
 
@@ -293,6 +351,35 @@ class ClientCrypto {
     } catch (error) {
       console.error('Signature compatibility test failed:', error);
       throw error;
+    }
+  }
+
+  // NEW: Debug message encryption/decryption to help identify issues
+  static debugMessageEncryption(message, recipientPublicKey, senderPrivateKey) {
+    try {
+      console.log('🔧 Debug: Testing message encryption/decryption...');
+      console.log('Original message:', message);
+      console.log('Recipient public key length:', recipientPublicKey.length);
+      console.log('Sender private key length:', senderPrivateKey.length);
+
+      // Test encryption
+      const encrypted = this.encryptWithPublicKey(message, recipientPublicKey);
+      console.log('Encrypted message:', encrypted);
+
+      // Get recipient's private key from public key (for testing purposes only)
+      // Note: In real scenario, only recipient has their private key
+      try {
+        const decrypted = this.decryptWithPrivateKey(encrypted, senderPrivateKey);
+        console.log('Decrypted message:', decrypted);
+        console.log('✓ Encryption/Decryption test successful');
+        return { success: true, encrypted, decrypted };
+      } catch (decryptError) {
+        console.log('❌ Decryption failed:', decryptError.message);
+        return { success: false, error: decryptError.message, encrypted };
+      }
+    } catch (error) {
+      console.error('Debug encryption test failed:', error);
+      return { success: false, error: error.message };
     }
   }
 }
